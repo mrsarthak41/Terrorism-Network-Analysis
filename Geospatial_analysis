@@ -1,0 +1,67 @@
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+from shapely.geometry import LineString
+
+# Load the dataset
+file_path = r"C:\Users\sarth\Downloads\next_hundred_batch_data.xlsx"
+data = pd.read_excel(file_path, sheet_name='Sheet1')
+
+# Check required columns
+if not {'Perpetrator Group', 'Country'}.issubset(data.columns):
+    raise ValueError("The dataset must contain 'Perpetrator Group' and 'Country' columns.")
+
+# Drop missing values
+data = data.dropna(subset=['Perpetrator Group', 'Country'])
+
+# Load Natural Earth data
+natural_earth_path = r"C:\Users\sarth\Downloads\ne_110m_admin_0_countries (1)\ne_110m_admin_0_countries.shp"
+world = gpd.read_file(natural_earth_path)
+
+# Normalize country names for matching
+world['NAME'] = world['NAME'].str.lower()
+data['Country'] = data['Country'].str.lower()
+
+# Count occurrences of attacks per country
+attacks_per_country = data.groupby('Country').size().reset_index(name='Attack Count')
+
+# Merge with world GeoDataFrame
+world = world.merge(attacks_per_country, how='left', left_on='NAME', right_on='Country')
+world['Attack Count'] = world['Attack Count'].fillna(0)  # Ensure missing values are handled
+
+# Plot attacks by country
+plt.figure(figsize=(14, 10))
+world.boundary.plot(ax=plt.gca(), linewidth=1, color='black')
+world.plot(column='Attack Count', ax=plt.gca(), legend=True,
+           legend_kwds={'label': "Number of Attacks", 'orientation': "horizontal"},
+           cmap='Reds')
+
+plt.title("Number of Terrorist Attacks by Country", fontsize=16)
+plt.xlabel("Longitude", fontsize=12)
+plt.ylabel("Latitude", fontsize=12)
+plt.show()
+
+# Create geospatial network connections (optional)
+group_country_pairs = data[['Perpetrator Group', 'Country']].drop_duplicates()
+
+lines = []
+for _, row in group_country_pairs.iterrows():
+    if row['Country'] in world['NAME'].values:
+        country_geom = world.loc[world['NAME'] == row['Country'], 'geometry'].values[0]
+        country_point = country_geom.centroid
+        group_point = country_point  # Groups are not geolocated, so approximate
+        lines.append(LineString([group_point, country_point]))
+
+# Create GeoDataFrame for lines
+lines_gdf = gpd.GeoDataFrame(geometry=lines)
+
+# Plot geospatial network connections
+plt.figure(figsize=(14, 10))
+world.boundary.plot(ax=plt.gca(), linewidth=1, color='black')
+lines_gdf.plot(ax=plt.gca(), color='blue', linewidth=0.5, alpha=0.7, label='Connections')
+
+plt.title("Geospatial Network of Terrorism (Group to Country)", fontsize=16)
+plt.xlabel("Longitude", fontsize=12)
+plt.ylabel("Latitude", fontsize=12)
+plt.legend()
+plt.show()
