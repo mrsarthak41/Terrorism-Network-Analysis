@@ -1,0 +1,59 @@
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+
+# Load the data
+file_path = r"C:\Users\sarth\Downloads\next_hundred_batch_data.xlsx"
+data = pd.read_excel(file_path, sheet_name='Sheet1')
+print(data.head())
+
+# Define time periods (e.g., 5-year intervals)
+data['Time Period'] = (data['Year'] // 5) * 5  # Group years into 5-year intervals
+time_periods = data['Time Period'].unique()
+
+# Store centrality metrics for each time period
+centrality_over_time = []
+
+# Calculate degree centrality for each time period
+for period in sorted(time_periods):
+    period_data = data[data['Time Period'] == period]
+    
+    # Create edges for the current time period
+    edges_period = pd.concat([
+        period_data[['Perpetrator Group', 'Leader/Mastermind']].rename(columns={'Perpetrator Group': 'Source', 'Leader/Mastermind': 'Target'}),
+        period_data[['Perpetrator Group', 'Country']].rename(columns={'Perpetrator Group': 'Source', 'Country': 'Target'})
+    ])
+    
+    # Build graph for the time period
+    G_period = nx.Graph()
+    G_period.add_edges_from(edges_period.dropna().values)
+    
+    # Calculate degree centrality for the graph
+    degree_centrality = nx.degree_centrality(G_period)
+    
+    # Store results
+    for node, centrality in degree_centrality.items():
+        centrality_over_time.append({
+            'Time Period': period,
+            'Node': node,
+            'Degree Centrality': centrality
+        })
+
+# Convert to DataFrame
+centrality_df = pd.DataFrame(centrality_over_time)
+
+# Select top nodes based on average centrality over all periods
+top_nodes = centrality_df.groupby('Node')['Degree Centrality'].mean().nlargest(5).index
+
+# Plot the line graph for top nodes
+plt.figure(figsize=(12, 6))
+for node in top_nodes:
+    node_data = centrality_df[centrality_df['Node'] == node]
+    plt.plot(node_data['Time Period'], node_data['Degree Centrality'], marker='o', label=node)
+
+plt.title("Degree Centrality of Top Nodes Over Time", fontsize=16)
+plt.xlabel("Time Period", fontsize=14)
+plt.ylabel("Degree Centrality", fontsize=14)
+plt.legend(title="Node", fontsize=12)
+plt.grid(True)
+plt.show()
