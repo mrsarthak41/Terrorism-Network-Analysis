@@ -1,0 +1,112 @@
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+from networkx.algorithms import bipartite
+
+# Load the data
+file_path = r"C:\Users\sarth\Downloads\next_hundred_batch_data.xlsx"
+data = pd.read_excel(file_path, sheet_name='Sheet1')
+
+# Create edges for bipartite graph (Group ↔ Country)
+bipartite_edges = data[['Perpetrator Group', 'Country']].dropna().drop_duplicates()
+
+# Initialize bipartite graph
+B = nx.Graph()
+B.add_edges_from(bipartite_edges.values)
+
+# Add bipartite attributes
+B.add_nodes_from(bipartite_edges['Perpetrator Group'].unique(), bipartite=0)
+B.add_nodes_from(bipartite_edges['Country'].unique(), bipartite=1)
+
+# Remove isolated nodes
+B.remove_nodes_from(list(nx.isolates(B)))
+
+# Bipartite layout positions
+group_nodes = {n for n, d in B.nodes(data=True) if d['bipartite']==0}
+pos = nx.bipartite_layout(B, nodes=group_nodes)
+
+# Improved visualization with titles
+plt.figure(figsize=(16, 12))
+nx.draw_networkx_nodes(B, pos, nodelist=group_nodes, node_color='green', node_size=200)
+nx.draw_networkx_nodes(B, pos, nodelist=set(B.nodes)-group_nodes, node_color='skyblue', node_size=200)
+nx.draw_networkx_edges(B, pos, alpha=0.3)
+nx.draw_networkx_labels(B, pos, font_size=8)
+plt.title("Original Bipartite Graph: Groups ↔ Countries", fontsize=16, pad=20)  # Added pad for title spacing
+plt.axis('off')
+plt.show()
+
+# --- Bipartite Link Prediction using Preferential Attachment ---
+def bipartite_preferential_attachment(graph):
+    predictions = []
+    group_nodes = {n for n, d in graph.nodes(data=True) if d['bipartite']==0}
+    country_nodes = set(graph.nodes) - group_nodes
+    
+    for group in group_nodes:
+        for country in country_nodes:
+            if not graph.has_edge(group, country):
+                score = graph.degree(group) * graph.degree(country)
+                predictions.append((group, country, score))
+    
+    return sorted(predictions, key=lambda x: x[2], reverse=True)
+
+# Get top predictions
+top_predictions = bipartite_preferential_attachment(B)[:10]
+
+# Create prediction graph
+prediction_graph = B.copy()
+prediction_graph.add_edges_from((u, v) for u, v, _ in top_predictions)
+
+# Visualization with predicted edges
+plt.figure(figsize=(18, 12))
+nx.draw_networkx_nodes(prediction_graph, pos, nodelist=group_nodes, node_color='green', node_size=200)
+nx.draw_networkx_nodes(prediction_graph, pos, nodelist=set(B.nodes)-group_nodes, node_color='skyblue', node_size=200)
+nx.draw_networkx_edges(prediction_graph, pos, edgelist=B.edges, alpha=0.3)
+nx.draw_networkx_edges(prediction_graph, pos, edgelist=top_predictions, edge_color='red', width=2)
+nx.draw_networkx_labels(prediction_graph, pos, font_size=8)
+plt.title("Bipartite Graph with Top 10 Predicted Links (Red)", fontsize=16, pad=20)
+plt.axis('off')
+plt.show()
+
+
+# Country projection
+country_projection = bipartite.weighted_projected_graph(B, [n for n, d in B.nodes(data=True) if d['bipartite']==1])
+
+plt.figure(figsize=(12, 8))
+pos = nx.spring_layout(country_projection, k=0.8, seed=42)
+nx.draw(country_projection, pos, with_labels=True, node_color='lightgreen', 
+        edge_color='gray', node_size=200, font_size=8)
+plt.title("Country Projection Network", fontsize=14, pad=15)  # Explicit title command
+plt.show()
+
+# Group projection
+group_projection = bipartite.weighted_projected_graph(B, [n for n, d in B.nodes(data=True) if d['bipartite']==0])
+
+plt.figure(figsize=(12, 8))
+pos = nx.spring_layout(group_projection, k=0.8, seed=42)
+nx.draw(group_projection, pos, with_labels=True, node_color='salmon', 
+        edge_color='gray', node_size=200, font_size=8)
+plt.title("Perpetrator Group Projection Network", fontsize=14, pad=15)
+plt.show()
+
+# --- Shortest Path Analysis (with corrected spelling) ---
+G = country_projection
+source = "Pakistan"
+target = "Afghanistan"  
+
+try:
+    path = nx.shortest_path(G, source=source, target=target)
+    
+    plt.figure(figsize=(12, 8))
+    pos = nx.spring_layout(G, seed=42, k=1.2)  # Increased k for longer edges
+    
+    nx.draw_networkx_edges(G, pos, alpha=0.3)
+    nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=300)
+    nx.draw_networkx_labels(G, pos, font_size=10)
+    nx.draw_networkx_edges(G, pos, edgelist=list(zip(path, path[1:])), 
+                          edge_color='red', width=2)
+    
+    plt.title(f"Shortest Path: {source} ↔ {target}", fontsize=14, pad=15)
+    plt.axis('off')
+    plt.show()
+except nx.NetworkXNoPath:
+    print(f"No path between {source} and {target}")
