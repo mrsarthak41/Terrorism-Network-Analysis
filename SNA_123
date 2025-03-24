@@ -1,0 +1,214 @@
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+
+# Load and prepare the data
+file_path = r"C:\Users\sarth\Downloads\next_hundred_batch_data.xlsx"
+data = pd.read_excel(file_path, sheet_name='Sheet1')
+
+# Create the initial network
+group_to_leader = data[['Perpetrator Group', 'Leader/Mastermind']].dropna().drop_duplicates()
+group_to_country = data[['Perpetrator Group', 'Country']].dropna().drop_duplicates()
+
+# Combine group-to-leader and group-to-country data to form a comprehensive network
+edges = pd.concat([
+    group_to_leader.rename(columns={'Perpetrator Group': 'Source', 'Leader/Mastermind': 'Target'}),
+    group_to_country.rename(columns={'Perpetrator Group': 'Source', 'Country': 'Target'})
+])
+
+G = nx.Graph()
+G.add_edges_from(edges.values)
+
+# Assign node types (Group, Leader, Country)
+nodes = pd.DataFrame({'Node': list(G.nodes())})
+nodes['Type'] = nodes['Node'].apply(
+    lambda x: 'Group' if x in group_to_leader['Perpetrator Group'].values
+    else ('Leader' if x in group_to_leader['Leader/Mastermind'].values else 'Country')
+)
+
+# Define color map for node types
+color_map = {'Group': 'purple', 'Leader': 'blue', 'Country': 'grey'}
+
+# Calculate degree centrality
+degree_centrality = nx.degree_centrality(G)
+
+# Filter the top 10% nodes by degree centrality
+sna_metrics = pd.DataFrame({
+    'Node': list(degree_centrality.keys()),
+    'Degree Centrality': list(degree_centrality.values())
+})
+threshold = sna_metrics['Degree Centrality'].quantile(0.90)
+top_nodes = sna_metrics[sna_metrics['Degree Centrality'] >= threshold]['Node']
+
+# Create a subgraph containing top nodes and their immediate connections
+filtered_nodes = set(top_nodes)
+filtered_edges = [(u, v) for u, v in G.edges() if u in filtered_nodes or v in filtered_nodes]
+G_filtered = nx.Graph()
+G_filtered.add_edges_from(filtered_edges)
+
+# Map node colors and sizes for the filtered graph
+filtered_node_colors = [
+    color_map[nodes.set_index('Node').at[node, 'Type']]
+    for node in G_filtered.nodes()
+]
+filtered_node_sizes = [
+    5000 * degree_centrality[node] for node in G_filtered.nodes()
+]
+
+# Draw the filtered network
+plt.figure(figsize=(14, 12))
+pos_filtered = nx.spring_layout(G_filtered, seed=42)
+
+nx.draw_networkx_nodes(
+    G_filtered, pos_filtered, node_color=filtered_node_colors, node_size=filtered_node_sizes, alpha=0.8
+)
+nx.draw_networkx_edges(G_filtered, pos_filtered, alpha=0.5)
+nx.draw_networkx_labels(G_filtered, pos_filtered, font_size=8)
+
+plt.title("Filtered Terrorism Network (Top 10% by Degree Centrality)", fontsize=16)
+plt.axis('off')
+plt.show()
+
+
+# only community
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+from networkx.algorithms.community import greedy_modularity_communities
+from matplotlib.lines import Line2D
+
+# Detect communities using the Greedy Modularity algorithm
+communities = list(greedy_modularity_communities(G_filtered))
+
+# Assign community labels
+community_map = {}
+for i, community in enumerate(communities):
+    for node in community:
+        community_map[node] = i
+
+# Define a color map for communities
+num_communities = len(communities)
+cmap = plt.get_cmap('tab20')  # Change to a different colormap if needed
+community_colors = [cmap(i / num_communities) for i in range(num_communities)]
+
+# Map nodes to their community colors
+node_colors = [community_colors[community_map[node]] for node in G_filtered.nodes()]
+
+# Create the plot
+plt.figure(figsize=(14, 12))
+pos = nx.spring_layout(G_filtered, seed=42)
+
+# Draw nodes and edges
+nx.draw_networkx_nodes(G_filtered, pos, node_color=node_colors, node_size=100, alpha=0.8)
+nx.draw_networkx_edges(G_filtered, pos, alpha=0.5)
+
+# Add node labels to the left of the network
+for node, (x, y) in pos.items():
+    plt.text(x - 0.05, y, node, fontsize=8, ha='right', color='black')
+
+# Create a legend for the communities
+legend_elements = [
+    Line2D([0], [0], marker='o', color='w', markerfacecolor=community_colors[i], markersize=10, label=f'Community {i + 1}')
+    for i in range(num_communities)
+]
+plt.legend(handles=legend_elements, loc='best', title='Communities', fontsize=10)
+
+# Title and remove axes
+plt.title("Community Detection in Terrorism Network (With Labels on the Left)", fontsize=16)
+plt.axis('off')
+plt.show()
+
+
+community_stats = []
+for i, community in enumerate(communities):
+    subgraph = G_filtered.subgraph(community)
+    avg_degree = sum(dict(subgraph.degree()).values()) / len(community)
+    top_nodes = sorted(dict(nx.degree_centrality(subgraph)).items(), key=lambda x: x[1], reverse=True)[:5]
+    community_stats.append({
+        'Community': i + 1,
+        'Size': len(community),
+        'Average Degree': avg_degree,
+        'Top Nodes': [node for node, _ in top_nodes]
+    })
+
+community_df = pd.DataFrame(community_stats)
+print(community_df)
+
+betweenness = nx.betweenness_centrality(G_filtered)
+top_betweenness = sorted(betweenness.items(), key=lambda x: x[1], reverse=True)[:10]
+print("Top 10 nodes by Betweenness Centrality:")
+for node, score in top_betweenness:
+    print(f"{node}: {score:.4f}")
+
+density = nx.density(G_filtered)
+print(f"Network Density: {density:.4f}")
+
+from networkx.algorithms.community.quality import modularity
+modularity_score = modularity(G_filtered, communities)
+print(f"Modularity Score: {modularity_score:.4f}")
+
+years = data['Year'].unique()
+for year in sorted(years):
+    yearly_data = data[data['Year'] == year]
+    yearly_edges = pd.concat([
+        yearly_data[['Perpetrator Group', 'Leader/Mastermind']].rename(columns={'Perpetrator Group': 'Source', 'Leader/Mastermind': 'Target'}),
+        yearly_data[['Perpetrator Group', 'Country']].rename(columns={'Perpetrator Group': 'Source', 'Country': 'Target'})
+    ])
+    G_year = nx.Graph()
+    G_year.add_edges_from(yearly_edges.dropna().values)
+    print(f"Year {year}: Nodes = {G_year.number_of_nodes()}, Edges = {G_year.number_of_edges()}")
+
+import seaborn as sns # type: ignore
+
+# Count the number of incidents per year
+yearly_counts = data['Year'].value_counts().sort_index()
+
+# Plot a bar chart
+plt.figure(figsize=(12, 6))
+sns.barplot(x=yearly_counts.index, y=yearly_counts.values, palette="viridis")
+plt.title("Number of Attacks per Year", fontsize=16)
+plt.xlabel("Year", fontsize=14)
+plt.ylabel("Number of Attacks", fontsize=14)
+plt.xticks(rotation=45)
+plt.show()
+
+# Number of Connected Components
+components = nx.number_connected_components(G_filtered)
+print(f"Number of Connected Components: {components}")
+
+# Average Path Length
+if nx.is_connected(G_filtered):
+    avg_path_length = nx.average_shortest_path_length(G_filtered)
+    print(f"Average Path Length: {avg_path_length:.4f}")
+else:
+    print("The graph is not connected; cannot compute average path length.")
+
+from networkx.algorithms.community import greedy_modularity_communities
+
+# Detect communities using the Greedy Modularity algorithm
+communities = list(greedy_modularity_communities(G_filtered))
+
+# Assign community labels
+community_map = {}
+for i, community in enumerate(communities):
+    for node in community:
+        community_map[node] = i
+
+# Visualize communities
+plt.figure(figsize=(14, 12))
+pos = nx.spring_layout(G_filtered, seed=42)
+node_colors = [community_map[node] for node in G_filtered.nodes()]
+
+nx.draw_networkx_nodes(G_filtered, pos, node_color=node_colors, cmap=plt.cm.Set3, node_size=100, alpha=0.8)
+nx.draw_networkx_edges(G_filtered, pos, alpha=0.5)
+plt.title("Community Detection in Terrorism Network", fontsize=16)
+plt.axis('off')
+plt.show()
+
+
+# Compute Average Shortest Path Length (Only if the network is connected)
+if nx.is_connected(G):
+    avg_path_length = nx.average_shortest_path_length(G)
+    print(f"Average Path Length: {avg_path_length:.4f}")
+else:
+    print("The graph is not connected; cannot compute average path length.")
