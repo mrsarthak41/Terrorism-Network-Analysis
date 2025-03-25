@@ -1,0 +1,40 @@
+import pandas as pd
+import networkx as nx
+import matplotlib.pyplot as plt
+
+# Load the data
+file_path = r"C:\Users\sarth\Downloads\next_hundred_batch_data.xlsx"
+data = pd.read_excel(file_path, sheet_name='Sheet1')
+# Create edges for bipartite graph (Group ↔ Country example)
+bipartite_edges = data[['Perpetrator Group', 'Country']].dropna().drop_duplicates()
+print(bipartite_edges.head())
+# Initialize a bipartite graph
+B = nx.Graph()
+B.add_edges_from(bipartite_edges.values)
+
+# Add node attributes to distinguish the two sets
+for node in bipartite_edges['Perpetrator Group'].unique():
+    B.nodes[node]['bipartite'] = 0  # Perpetrator Groups
+
+for node in bipartite_edges['Country'].unique():
+    B.nodes[node]['bipartite'] = 1  # Countries
+
+# Generate positions for bipartite layout
+pos = nx.drawing.layout.bipartite_layout(B, nodes=bipartite_edges['Perpetrator Group'].unique())
+
+# Extract nodes for each side
+group_nodes = [node for node, data in B.nodes(data=True) if data['bipartite'] == 0]
+country_nodes = [node for node, data in B.nodes(data=True) if data['bipartite'] == 1]
+
+# Plot bipartite graph
+plt.figure(figsize=(16, 12))
+nx.draw_networkx_nodes(B, pos, nodelist=group_nodes, node_color='pink', label='Perpetrator Groups', node_size=100)
+nx.draw_networkx_nodes(B, pos, nodelist=country_nodes, node_color='skyblue', label='Countries', node_size=100)
+nx.draw_networkx_edges(B, pos, alpha=0.5)
+nx.draw_networkx_labels(B, pos, font_size=8)
+
+plt.title("Bipartite Graph: Perpetrator Groups ↔ Countries", fontsize=16)
+plt.legend(loc='upper left')
+plt.axis('off')
+plt.tight_layout()
+plt.show()
